@@ -109,6 +109,8 @@ type TimelineSearchInput = {
   sessionID: () => string | undefined
   scrollRef: () => HTMLDivElement | undefined
   revealMessage: (id: string, partID?: string) => void
+  /** Ends the scroll `revealMessage` started. */
+  stopReveal: () => void
   pauseAutoScroll: () => void
 }
 
@@ -269,6 +271,9 @@ export function createTranscriptSearch(
     }
 
     if (effect.type === "scroll") {
+      // The reveal scrolls to the middle of the match's row and keeps at it for up to five seconds. Find goes to the
+      // match itself, so that scroll would only move the view away again.
+      input.stopReveal()
       input.scrollRef()?.scrollTo({ top: effect.top, behavior: "auto" })
 
       return

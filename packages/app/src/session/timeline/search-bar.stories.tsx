@@ -54,6 +54,7 @@ function FindStory(props: Args) {
     messages: () => document().messages,
     scrollRef: scroll,
     revealMessage() {},
+    stopReveal() {},
     pauseAutoScroll() {},
   })
 
