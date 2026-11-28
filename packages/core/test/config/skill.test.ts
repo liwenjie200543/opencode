@@ -1,7 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect, test } from "bun:test"
-import { Deferred, Effect, Fiber, Layer, Schema, Stream } from "effect"
+import { Deferred, Effect, Fiber, Layer, Logger, Schema, Stream } from "effect"
 import { Config } from "@opencode/core/config"
 import { Directory, Document, type Entry, Event, Info } from "@opencode/schema/config"
 import { ConfigSkillPlugin } from "@opencode/core/config/plugin/skill"
@@ -596,6 +596,40 @@ describe("ConfigSkillPlugin.Plugin", () => {
             ),
           ),
         ),
+      ),
+    ),
+  )
+})
+
+describe("ConfigCompatibilityPlugin.Plugin skipped skills", () => {
+  it.live("warns at the default log level when a Claude skill file cannot be loaded", () =>
+    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const claude = path.join(tmp.path, "claude")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(claude, "skills", "mismatch"), { recursive: true })
+            await fs.writeFile(
+              path.join(claude, "skills", "mismatch", "SKILL.md"),
+              ["---", "name: mismatch", "description: [not, a, string]", "---", "# mismatch"].join("\n"),
+            )
+          })
+          const warnings: string[] = []
+          const skill = yield* startEntries([], tmp.path, tmp.path, emptyDiscovery, {
+            claude: [AbsolutePath.make(claude)],
+            agents: [],
+          }).pipe(
+            Effect.withLogger(
+              Logger.make((entry) => {
+                if (entry.logLevel === "Warn") warnings.push(JSON.stringify([entry.message, entry.cause]))
+              }),
+            ),
+          )
+
+          expect(yield* skill.list()).toEqual([])
+          expect(warnings.filter((line) => line.includes("skill file skipped"))).toHaveLength(1)
+          expect(warnings.some((line) => line.includes("mismatch") && line.includes("frontmatter"))).toBe(true)
+        }),
       ),
     ),
   )
