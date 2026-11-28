@@ -3,12 +3,14 @@ export * as ConfigCompatibilityPlugin from "./compatibility.js"
 import { define } from "@opencode/plugin/effect/plugin"
 import { FSUtil } from "@opencode/util/fs-util"
 import path from "path"
-import { Effect, FiberMap, PubSub, Semaphore, Stream } from "effect"
+import { Effect, FiberMap, PubSub, SchemaIssue, Semaphore, Stream } from "effect"
 import { Config } from "../../config.js"
 import { Watcher } from "../../filesystem/watcher.js"
 import { Skill } from "../../skill.js"
 import { SkillFile } from "./skill-file.js"
 import { SkillScan } from "./skill-scan.js"
+
+const formatIssue = SchemaIssue.makeFormatterDefault()
 
 export const Plugin = define({
   id: "opencode.config.compatibility",
@@ -52,7 +54,15 @@ export const Plugin = define({
             const content = yield* fs.readFileStringSafe(filepath).pipe(Effect.orElseSucceed(() => undefined))
             if (!content) continue
             const parsed = SkillFile.parse(resolved, filepath, content)
-            if (parsed._tag === "Parsed") loaded.set(parsed.skill.id, parsed.skill)
+            if (parsed._tag === "Skipped") {
+              yield* Effect.logWarning("skill file skipped", {
+                filepath,
+                reason: parsed.reason,
+                ...(parsed.reason === "frontmatter" ? { issue: formatIssue(parsed.issue) } : {}),
+              })
+              continue
+            }
+            loaded.set(parsed.skill.id, parsed.skill)
           }
         }
         skills.splice(0, skills.length, ...loaded.values())

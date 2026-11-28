@@ -1,7 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect, test } from "bun:test"
-import { Deferred, Effect, Fiber, Layer, Schema, Stream } from "effect"
+import { Deferred, Effect, Fiber, Layer, Logger, Schema, Stream } from "effect"
 import { Config } from "@opencode/core/config"
 import { Directory, Document, type Entry, Event, Info } from "@opencode/schema/config"
 import { ConfigSkillPlugin } from "@opencode/core/config/plugin/skill"
@@ -596,6 +596,46 @@ describe("ConfigSkillPlugin.Plugin", () => {
             ),
           ),
         ),
+      ),
+    ),
+  )
+})
+
+describe("ConfigCompatibilityPlugin.Plugin skipped skills", () => {
+  it.live("warns at the default log level when a Claude-compatible skill file cannot be loaded", () =>
+    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const claude = path.join(tmp.path, "claude")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(claude, "skills", "good"), { recursive: true })
+            await fs.mkdir(path.join(claude, "skills", "badshape"), { recursive: true })
+            await fs.writeFile(
+              path.join(claude, "skills", "good", "SKILL.md"),
+              "---\nname: good\ndescription: control skill\n---\n# good",
+            )
+            // Parses as YAML, but the frontmatter decodes into the wrong shape.
+            await fs.writeFile(
+              path.join(claude, "skills", "badshape", "SKILL.md"),
+              "---\nname: badshape\ndescription: [not, a, string]\n---\n# badshape",
+            )
+          })
+          const warnings: string[] = []
+          const skill = yield* startEntries([], tmp.path, tmp.path, emptyDiscovery, {
+            claude: [AbsolutePath.make(claude)],
+            agents: [],
+          }).pipe(
+            Effect.withLogger(
+              Logger.make((entry) => {
+                if (entry.logLevel === "Warn") warnings.push(JSON.stringify([entry.message, entry.cause]))
+              }),
+            ),
+          )
+
+          expect((yield* skill.list()).map((item) => item.id)).toEqual([Skill.ID.make("good")])
+          expect(warnings.filter((line) => line.includes("skill file skipped"))).toHaveLength(1)
+          expect(warnings.some((line) => line.includes("badshape") && line.includes("frontmatter"))).toBe(true)
+        }),
       ),
     ),
   )
